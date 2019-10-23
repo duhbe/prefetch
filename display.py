@@ -1,7 +1,7 @@
 from tkinter import *
 
 import xml.etree.ElementTree as ET
-root = ET.parse('f:/Work/01 - Workspaces/workspace-alloy/sol1.xml').getroot()
+root = ET.parse('E:/Work/Alloy/sol1.xml').getroot()
 
 op_to_deadline = dict()
 
@@ -133,7 +133,7 @@ for op in op_to_start:
     if optype == 'U':
         name=optype+op.split('$')[1]+'('+str(luop_to_blocks[op])+')'
         canvas.create_polygon(100+sx,100+offy,100+sx-5, 90+offy,100+sx+5, 90+offy, fill=color)
-        canvas.create_text(100+sx,80+offy,fill="black",font="Arial 8",anchor='center', width=ex, text=name)
+        canvas.create_text(100+sx,80+offy,fill="black",font="Arial 8",anchor='center', text=name)
 
 mainWindow.mainloop()
 
