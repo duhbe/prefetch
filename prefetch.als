@@ -1,7 +1,7 @@
-/*
-	Alloy specification of the prefetch mechanism
-	
-*/
+// ====================================================
+//	Alloy specification of the prefetch mechanism
+//	E. Jenn - 2019/10/24
+// ====================================================
 
 module prefetch
 
@@ -18,7 +18,7 @@ abstract sig MemBanks {}
 abstract sig PSPRs {}
 
 // ====================================================
-// Cores
+// The cores
 // ====================================================
 abstract sig Cores {
 	// Each core has a schedule
@@ -27,22 +27,19 @@ abstract sig Cores {
 	pspr : one PSPRs
 }
 
-
 // All cores
 one sig Core0, Core1, Core2 extends Cores {}
 
-
 // ====================================================
-// schedules
+// The schedules
 // ====================================================
 sig Schedules {
 	// All operations of the schedule 
 	ops : set Ops
 }
 
-
 // ====================================================
-// A code block.
+// The code block.
 // All code blocks have the same size.
 // ====================================================
 sig CodeBlocks {
@@ -55,7 +52,7 @@ sig CodeBlocks {
 // ====================================================
 abstract sig Ops {
 	// An Op belongs to one and only one schedule
-//	sched : one Schedules,
+	sched : one Schedules,
 	// The start time for the execution of an operation
 	start : one Int,
 }
@@ -205,7 +202,8 @@ fact NoCollisionBetweenBP {
 // The predecessors must be executed before the successors.
 // ---------------------------------------------------------------------------------
 fact {
-	all op, op' : Fops | op' in op.preds implies op'.start < myint/plus[op.start,op.duration]
+	all op, op' : Fops | 
+		op' in op.preds implies op'.start < myint/plus[op.start,op.duration]
 }
 
 // ---------------------------------------------------------------------------------
@@ -225,7 +223,6 @@ fact {
 		cb in Fops.cbs
 }
 
-
 // ---------------------------------------------------------------------------------
 // We shall only load a code block that is used later
 // ---------------------------------------------------------------------------------
@@ -244,12 +241,11 @@ fact  {
 	all fop: Fops |
 		one c: Cores | fop in c.sched.ops and
 		let loaded_blocks = { lop: Lops | 
-				(lop.pspr = c.pspr ) and ( myint/plus[lop.start, lop.duration] <= fop.start) }.cb |
+				( lop.pspr = c.pspr ) and ( myint/plus[lop.start, lop.duration] <= fop.start ) }.cb |
 		let unloaded_blocks = { uop: Uops | 
-				(uop.pspr = c.pspr ) and ( uop.start <= fop.start) }.cb 	|
+				( uop.pspr = c.pspr ) and ( uop.start <= fop.start ) }.cb  |
 		fop.cbs in loaded_blocks-unloaded_blocks  
 }
-
 
 // ---------------------------------------------------------------------------------
 // At any time, there shall be no more than N (here, N=3) code blocks in the buffer, i.e.: 
@@ -257,17 +253,14 @@ fact  {
 // smaller or equal than N.
 // We only consider significant times, i.e., times at which a Op is executed.
 // ---------------------------------------------------------------------------------
-
 fact {
-	// For all psprs
 	all p : PSPRs, lop: Lops |
 		// at any time (time is defined by Load operations because an overflow can only be caused by a Load op)
-			let loaded_blocks = { lop': Lops | 
-					 ( lop'.pspr = p) and (myint/plus[lop'.start, lop'.duration] <= lop.start) }.cb	|
-			let unloaded_blocks = { uop: Uops | 
-					(uop.pspr = p) and (uop.start <= lop.start) }.cb 	|
-			#loaded_blocks - #unloaded_blocks <= 3
-
+		let loaded_blocks = { lop': Lops | 
+				( lop'.pspr = p ) and ( myint/plus[lop'.start, lop'.duration] <= lop.start ) }.cb	|
+		let unloaded_blocks = { uop: Uops | 
+				( uop.pspr = p ) and ( uop.start <= lop.start ) }.cb |
+		#loaded_blocks - #unloaded_blocks <= 2
  }
 
 
@@ -291,9 +284,17 @@ fact {
 }
 
 // ---------------------------------------------------------------------------------
-// There is no sense in loading or unloading a block if there is not functional Op afterwards.
-// TBD
+// There is no sense in loading a block if there is no functional op using
+// this block late in the future.
 // ---------------------------------------------------------------------------------
+fact {
+	all lop: Lops |
+		some fop : Fops | 
+			( myint/plus[lop.start, lop.duration] <= fop.start  )  and 
+			( lop.cb in fop.cbs ) and 
+			one c:Cores |
+				( fop in c.sched.ops ) and  ( c.pspr = lop.pspr )
+ }
 
 // ---------------------------------------------------------------------------------
 // The same code block shall not be loaded twice in the same PSPR without being unloaded before:
@@ -305,7 +306,7 @@ fact NoTwoLoadsWithoutUnload{
 		(lop.pspr = lop'.pspr) and (lop.cb = lop'.cb) and (lop.start<lop'.start) implies 
 			some uop : Uops | 
 				( myint/plus[lop.start, lop.duration] <= uop.start and 
-				   uop.start <= myint/plus[lop'.start, lop'.duration] ) 
+				   uop.start <= myint/plus[lop'.start, lop'.duration]  ) 
 				and
 				uop.cb = lop.cb
 }
@@ -314,12 +315,19 @@ fact NoTwoLoadsWithoutUnload{
 // Predicate used to generate models
 // ---------------------------------------------------------------------------------
 pred show (){
-	// Generate models with 6 functional operations  
-	#Fops=6
+	// We have only 2 memory banks
+	#MemBanks = 2
+	// Generate models with 8 functional operations  
+	#Fops = 4
 	// Generate at least 1 unload operation
 	#Uops > 0
-	#MemBanks = 2
+	// Aditional constraints to ensure that fops use different blocks
+	all disj op, op' : Fops |
+		disj [op.cbs,  op'.cbs]
 }
 
-//
-run show for 10
+// ---------------------------------------------------------------------------------
+// By default, Alloy integers are 4-bit twos-complement values, so the range of possible values runs from -8 to 7.
+// To support higher cardinality greater than 7, int must be extended (extended to 5 bits)
+// ---------------------------------------------------------------------------------
+run show for 10 but 6 int
