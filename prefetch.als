@@ -317,10 +317,8 @@ fact NoTwoLoadsWithoutUnload{
 pred show (){
 	// We have only 2 memory banks
 	#MemBanks = 2
-	// Generate models with 8 functional operations  
-	#Fops = 4
-	// Generate at least 1 unload operation
-	#Uops > 0
+	// Generate models with a maximum number of functional operations  
+	#Fops = 5
 	// Aditional constraints to ensure that fops use different blocks
 	all disj op, op' : Fops |
 		disj [op.cbs,  op'.cbs]
