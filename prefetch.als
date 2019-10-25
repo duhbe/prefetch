@@ -1,6 +1,12 @@
 // ====================================================
 //	Alloy specification of the prefetch mechanism
 //	E. Jenn - 2019/10/24
+// Nota: I have used different names for the same "field" (e.g., pspr_c and pspr_u)
+// in order to facilitate the parsing of the XML file. 
+// Otherwise, X in sig1 and X in sig2 will designate a relation X with elements from sig1 or sig2
+// which wil have to be sorted out during parsing.
+// I have not used singletons to designate "fixed elements" such as cores, psprs,...
+// but constraints on the cardinality. 
 // ====================================================
 
 module prefetch
@@ -13,29 +19,29 @@ open util/integer as myint
 abstract sig MemBanks {}
 
 // ====================================================
-// The PSPRs
+// PSPRs
 // ====================================================
 abstract sig PSPRs {}
 
 // ====================================================
-// The cores
+// Cores
 // ====================================================
 abstract sig Cores {
-	// Each core has a schedule
-	sched : one Schedules,
-	// PSPR
-	pspr : one PSPRs
+	// Each core has a schedule...
+	sched_c : one Schedules,
+	// and a PSPR
+	pspr_c : one PSPRs
 }
 
 // All cores
 one sig Core0, Core1, Core2 extends Cores {}
 
 // ====================================================
-// The schedules
+// Schedules
 // ====================================================
 sig Schedules {
-	// All operations of the schedule 
-	ops : set Ops
+	// Each schedule has some operations... 
+	ops : some Ops
 }
 
 // ====================================================
@@ -48,12 +54,10 @@ sig CodeBlocks {
 }
 
 // ====================================================
-// Abstract operations
+// Operations
 // ====================================================
 abstract sig Ops {
-	// An Op belongs to one and only one schedule
-	sched : one Schedules,
-	// The start time for the execution of an operation
+	// An operation starts its execution at a given time.
 	start : one Int,
 }
 {
@@ -62,106 +66,114 @@ abstract sig Ops {
 }
 
 // ====================================================
-// A vitual op takes no time to execute
+// Virtual operations (take no time to execute)
 // ====================================================
 abstract sig VirtualOps extends Ops {}
 
 // ====================================================
-// Actual ops (an op that takes some timle to execute)
+// Actual operations (take time to execute)
 // ====================================================
 abstract sig ActualOps extends Ops {
 	// The duration of execution of an operation
-	duration : one Int
+	duration :  Int
 }
 {
+	// A duration can't be null.
 	duration > 0
 }
 
 // ====================================================
-// Functional Ops
+// Functional operations (Fops)
 // ====================================================
 sig Fops extends ActualOps {
 	// Each functional operation has a deadline
 	deadline : Int,
-	// A functional op has one or several predecessors
+	// ... zero or several predecessors
 	preds : set Fops,
-	// A functional op requires a set of code blocks to execute
-	cbs : set CodeBlocks
+	// ... and requires a set of code blocks to execute
+	cbs : some CodeBlocks
 }
 {
 	// A functional op cannot be its own predecessor 
 	this not in preds  
-	// A functional op requires at least one code block to do something useful
-	#cbs > 0
-	// but it cannot require more code blocks that what can be stored in the PSPR
+	// ... and cannot require more code blocks that what can be stored in the PSPR (here: 4 blocks)
 	#cbs < 4 
 }
 
 // ====================================================
-// Loading Ops
+// Load operations (Lops)
 // ====================================================
-// [TODO] Replace cb, pspr by xfer : cb->pspr
 sig Lops extends ActualOps {
-	// The code block to be loaded
+	// The code block to be loaded...
 	cb : one CodeBlocks,
-	// The PSPR to which the code block must be loaded
-	pspr: one PSPRs
+	// ... the PSPR to which the code block must be loaded
+	pspr_l: one PSPRs
 }
 {
-	// The time to load a blcok is arbitrarily set to 1
+	// The time to load a block is arbitrarily set to 1 unit of time
 	duration = 1
 }
 
 // ====================================================
-// Unloading operations
+// Unloading operations (Uops)
 // ====================================================
 sig Uops extends VirtualOps {
 	// The code block to be unloaded
 	cb : one CodeBlocks,
-	// The PSPR to which the code block must be unloaded
-	pspr: one PSPRs
+	// ... PSPR to which the code block must be "unloaded"
+	pspr_u: one PSPRs
 }
 
 // ---------------------------------------------------------------------------------
-// Each core has its own PSPR
+// Any core has its own PSPR
 // ---------------------------------------------------------------------------------
 fact {
 	all disj c,c': Cores | 
-		c.pspr != c'.pspr
+		c.pspr_c != c'.pspr_c
 }
 
 // ---------------------------------------------------------------------------------
-// Each PSPR belongs to a core
+// Any core has is own schedule
+// ---------------------------------------------------------------------------------
+fact {
+	all disj c,c' : Cores | 
+		c.sched_c != c'.sched_c
+}	
+
+// ---------------------------------------------------------------------------------
+// Any PSPR belongs to a core (no dangling PSPRs)
 // ---------------------------------------------------------------------------------
 fact {
 	all p : PSPRs | 
 		one c : Cores |
-			c.pspr = p
+			c.pspr_c = p
 }
 
 // ---------------------------------------------------------------------------------
-// Each core has is own schedule
-// ---------------------------------------------------------------------------------
-fact {
-	all disj c,c' : Cores | 
-		c.sched != c'.sched
-}	
-
-// ---------------------------------------------------------------------------------
-// Each schedule belongs to one core
+// Any schedule belongs to one core
 // ---------------------------------------------------------------------------------
 fact {
 	all s: Schedules  |
 		one c : Cores | 
-			c.sched = s
+			c.sched_c = s
 }	
+
+// ---------------------------------------------------------------------------------
+// Any op belongs to one and only one schedule 
+// ---------------------------------------------------------------------------------
+fact {
+	all op: Ops  | 
+		one s: Schedules |
+			op in s.ops 
+}
+
 
 // ---------------------------------------------------------------------------------
 // Any functional op shall terminate before its deadline
 // ---------------------------------------------------------------------------------
 fact CompleteBeforeDeadline{
 	all op : Fops | 
-		myint/plus[op.start,op.duration]<= op.deadline
+		myint/plus[op.start,op.duration] <= op.deadline
 }
 
 // ---------------------------------------------------------------------------------
@@ -173,7 +185,7 @@ fact no_cycle {
 }
 
 // ---------------------------------------------------------------------------------
-// This predicate is true if the two ops temporarilly collide (on any schedule)
+// This predicate is true if the two ops do not temporarilly collide (on any schedule)
 // ---------------------------------------------------------------------------------
 pred no_collision  [op: Ops, op': Ops]
 {
@@ -186,12 +198,12 @@ pred no_collision  [op: Ops, op': Ops]
 // ---------------------------------------------------------------------------------
 fact NoCollision {
 	all s: Schedules, disj op,op' : Fops+Lops | 
-		op in s.ops and op' in s.ops implies no_collision[op,op']
+		( op in s.ops and op' in s.ops ) implies no_collision[op,op']
 }
 
 // ---------------------------------------------------------------------------------
-// Loading ops shall not collide if they access to the same segment, even if 
-// they are on different schedules.
+// Loading ops shall not collide if they access to the same memory segment, even if 
+// they are executed on different cores (so, on different schedules).
 // ---------------------------------------------------------------------------------
 fact NoCollisionBetweenBP {
 	all s,s': Schedules, disj op,op' : Lops | 
@@ -199,7 +211,7 @@ fact NoCollisionBetweenBP {
 }
 
 // ---------------------------------------------------------------------------------
-// The predecessors must be executed before the successors.
+// Functional operations shall be executed according to the "predessor" relation.
 // ---------------------------------------------------------------------------------
 fact {
 	all op, op' : Fops | 
@@ -207,16 +219,7 @@ fact {
 }
 
 // ---------------------------------------------------------------------------------
-// Each op belongs to one and only one schedule 
-// ---------------------------------------------------------------------------------
-fact {
-	all op: Ops  | 
-		one s: Schedules |
-			op in s.ops 
-}
-
-// ---------------------------------------------------------------------------------
-// All code blocks must be used by at least one functional Op...
+// Any code block must be used by at least one functional Op... (no "dangling" code block)
 // ---------------------------------------------------------------------------------
 fact {
 	all cb :CodeBlocks | 
@@ -224,26 +227,27 @@ fact {
 }
 
 // ---------------------------------------------------------------------------------
-// We shall only load a code block that is used later
+// Any block shall only be loaded if it is used later.
 // ---------------------------------------------------------------------------------
 fact {
 	all lop : Lops |
 		some fop : Fops |
 			( myint/plus[lop.start,lop.duration] <= fop.start ) and
 			lop.cb in fop.cbs and
-			one c: Cores | fop in c.sched.ops  and lop.pspr = c.pspr
+			one c: Cores | 
+				fop in c.sched_c.ops  and lop.pspr_l = c.pspr_c
 }
 
 // ---------------------------------------------------------------------------------
-// No functional operation can start before its code blocks have been loaded.
+// Any functional operation must have all its block available before starting execution.
 // ---------------------------------------------------------------------------------
 fact  {
 	all fop: Fops |
-		one c: Cores | fop in c.sched.ops and
+		one c: Cores | fop in c.sched_c.ops and
 		let loaded_blocks = { lop: Lops | 
-				( lop.pspr = c.pspr ) and ( myint/plus[lop.start, lop.duration] <= fop.start ) }.cb |
+			( lop.pspr_l = c.pspr_c ) and ( myint/plus[lop.start, lop.duration] <= fop.start ) }.cb |
 		let unloaded_blocks = { uop: Uops | 
-				( uop.pspr = c.pspr ) and ( uop.start <= fop.start ) }.cb  |
+			( uop.pspr_u = c.pspr_c ) and ( uop.start <= fop.start ) }.cb  |
 		fop.cbs in loaded_blocks-unloaded_blocks  
 }
 
@@ -251,64 +255,53 @@ fact  {
 // At any time, there shall be no more than N (here, N=3) code blocks in the buffer, i.e.: 
 // At any time t, the number of loaded blocks minus the number of unloaded blocks before that point shall be 
 // smaller or equal than N.
-// We only consider significant times, i.e., times at which a Op is executed.
+// We only consider significant times, i.e., times at which a load operaton is executed.
 // ---------------------------------------------------------------------------------
 fact {
 	all p : PSPRs, lop: Lops |
 		// at any time (time is defined by Load operations because an overflow can only be caused by a Load op)
 		let loaded_blocks = { lop': Lops | 
-				( lop'.pspr = p ) and ( myint/plus[lop'.start, lop'.duration] <= lop.start ) }.cb	|
+				( lop'.pspr_l = p ) and ( myint/plus[lop'.start, lop'.duration] <= lop.start ) }.cb	|
 		let unloaded_blocks = { uop: Uops | 
-				( uop.pspr = p ) and ( uop.start <= lop.start ) }.cb |
-		#loaded_blocks - #unloaded_blocks <= 2
+				( uop.pspr_u = p ) and ( uop.start <= lop.start ) }.cb |
+		#loaded_blocks - #unloaded_blocks <= 3
  }
 
 
 // ---------------------------------------------------------------------------------
 // A code block cannot be unloaded if it has not been loaded before (in the same pspr)
-// So, a Uops for code Op n shall be preceeded by a Lops for Op n, with no
+// So, a Uops for code block <n> shall be preceeded by a Lops for code block <n>, with no
 // other Uops' between the Lops and the Uops
 // ---------------------------------------------------------------------------------
 fact {
 	all uop: Uops |
 		some lop : Lops | 
 			(myint/plus[lop.start, lop.duration] <= uop.start) and 
-			( uop.cb in lop.cb ) and
-			( uop.pspr = lop.pspr) and
+			( uop.cb = lop.cb ) and
+			( uop.pspr_u = lop.pspr_l) and
 			no uop': Uops | 
 				( uop' != uop ) and 
 				( myint/plus[lop.start, lop.duration] <= uop'.start) and 
 				(uop'.start <= uop.start) and 
 				( uop'.cb = uop.cb ) and
-				( uop'.pspr = uop.pspr )
+				( uop'.pspr_u = uop.pspr_u )
 }
 
-// ---------------------------------------------------------------------------------
-// There is no sense in loading a block if there is no functional op using
-// this block late in the future.
-// ---------------------------------------------------------------------------------
-fact {
-	all lop: Lops |
-		some fop : Fops | 
-			( myint/plus[lop.start, lop.duration] <= fop.start  )  and 
-			( lop.cb in fop.cbs ) and 
-			one c:Cores |
-				( fop in c.sched.ops ) and  ( c.pspr = lop.pspr )
- }
 
 // ---------------------------------------------------------------------------------
 // The same code block shall not be loaded twice in the same PSPR without being unloaded before:
-// "Any sequence of two successive load op to the same PSPR must contain at least one unload op for the 
+// "Any sequence of operation containing two load op to the same PSPR must contain at least one unload op for the 
 // same code block" (and the same pspr)
 // ---------------------------------------------------------------------------------
 fact NoTwoLoadsWithoutUnload{
 	all lop, lop': Lops |
-		(lop.pspr = lop'.pspr) and (lop.cb = lop'.cb) and (lop.start<lop'.start) implies 
+		( lop.pspr_l = lop'.pspr_l ) and ( lop.cb = lop'.cb ) and ( lop.start<lop'.start ) implies 
 			some uop : Uops | 
 				( myint/plus[lop.start, lop.duration] <= uop.start and 
 				   uop.start <= myint/plus[lop'.start, lop'.duration]  ) 
 				and
-				uop.cb = lop.cb
+				( uop.cb = lop.cb ) and 
+				( uop.pspr_u = lop.pspr_l )  
 }
 
 // ---------------------------------------------------------------------------------
@@ -318,14 +311,22 @@ pred show (){
 	// We have only 2 memory banks
 	#MemBanks = 2
 	// Generate models with a maximum number of functional operations  
-	#Fops = 5
+	#Fops = 6
 	// Aditional constraints to ensure that fops use different blocks
-	all disj op, op' : Fops |
-		disj [op.cbs,  op'.cbs]
+	// all disj op, op' : Fops |
+	 //	disj [op.cbs,  op'.cbs]
+	// We limit the durations of Fop to one
+	all fop : Fops |
+		fop.duration = 1
+
+	all fop : Fops |
+		fop.start < 10
+
 }
 
 // ---------------------------------------------------------------------------------
 // By default, Alloy integers are 4-bit twos-complement values, so the range of possible values runs from -8 to 7.
-// To support higher cardinality greater than 7, int must be extended (extended to 5 bits)
+// To support  cardinalities greater than 7, int must be extended (extended to 5 bits)
+// "run show for <X> means that there shall be no more than 20 instance for each signature.
 // ---------------------------------------------------------------------------------
 run show for 10 but 6 int
